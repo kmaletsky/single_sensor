@@ -1,5 +1,5 @@
 /*
- * main.c - Read ADC on PA2 and drive PA1 low if voltage > 2.75V
+ * main.c - Conditional ADC on PA3 based on PA2 level, drive PA1 accordingly
  *
  * Notes:
  * - Adjust VCC_MV below to match your board supply (5000 for 5V, 3300 for 3.3V).
@@ -23,15 +23,19 @@ int main(void)
     PORTA.DIRSET = PIN1_bm;
     PORTA.OUTSET = PIN1_bm;
 
-    // Ensure PA2 is input (analog)
+    // Configure PA2 as input with internal pull-up
     PORTA.DIRCLR = PIN2_bm;
+    PORTA.PIN2CTRL = PORT_PULLUPEN_bm;
+
+    // Ensure PA3 is input (analog)
+    PORTA.DIRCLR = PIN3_bm;
 
     // ADC setup:
     // - Reference: VDD (VDD as ADC reference)
     // - Prescaler: DIV4 (adjust if needed)
     ADC0.CTRLC = ADC_PRESC_DIV4_gc | ADC_REFSEL_VDDREF_gc;
-    // Select PA2 as ADC positive input
-    ADC0.MUXPOS = ADC_MUXPOS_AIN2_gc;
+    // Select PA3 as ADC positive input
+    ADC0.MUXPOS = ADC_MUXPOS_AIN3_gc;
     // Enable ADC
     ADC0.CTRLA = ADC_ENABLE_bm;
 
@@ -43,22 +47,39 @@ int main(void)
 
     for (;;)
     {
-        // Start conversion
+        // Read PA2 level
+        uint8_t pa2_high = (PORTA.IN & PIN2_bm) != 0;
+
+        // Start ADC conversion on PA3
         ADC0.COMMAND = ADC_STCONV_bm;
         // Wait for result ready
         while (!(ADC0.INTFLAGS & ADC_RESRDY_bm))
             ;
         uint16_t sample = ADC0.RES;
 
-        if (sample > threshold)
+        if (pa2_high)
         {
-            // Drive PA1 low when measured voltage > 2.75V
-            PORTA.OUTCLR = PIN1_bm;
+            // If PA2 high, drive PA1 low if PA3 > 2.75V
+            if (sample > threshold)
+            {
+                PORTA.OUTCLR = PIN1_bm;
+            }
+            else
+            {
+                PORTA.OUTSET = PIN1_bm;
+            }
         }
         else
         {
-            // Otherwise keep PA1 high
-            PORTA.OUTSET = PIN1_bm;
+            // If PA2 low, drive PA1 low if PA3 < 2.75V (opposite)
+            if (sample < threshold)
+            {
+                PORTA.OUTCLR = PIN1_bm;
+            }
+            else
+            {
+                PORTA.OUTSET = PIN1_bm;
+            }
         }
 
         _delay_ms(100);
